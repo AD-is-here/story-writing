@@ -84,14 +84,18 @@ export default function StoryCreator({ session, onStoryCreated, onCancel }) {
       if (!storyData) {
         const localGeminiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (localGeminiKey) {
-          storyData = await generateClientSideStory(filteredKeywords, localGeminiKey, language);
+          try {
+            storyData = await generateClientSideStory(filteredKeywords, localGeminiKey, language);
+          } catch (apiErr) {
+            console.error("Gemini API overloaded or busy. Triggering graceful fallback...", apiErr);
+          }
         }
       }
 
-      // 3. Ultimate beautiful Mock Story fallback if no API keys are available
+      // 3. Ultimate beautiful Mock Story fallback if live APIs fail or no keys are available
       if (!storyData) {
-        console.log("No API key found. Generating high-quality parchment mock story...");
-        storyData = generatePremiumMockStory(filteredKeywords);
+        console.log("Generating high-quality parchment fallback story...");
+        storyData = generatePremiumMockStory(filteredKeywords, language);
       }
 
       // Select a random vintage leather color for the cover
@@ -127,7 +131,7 @@ export default function StoryCreator({ session, onStoryCreated, onCancel }) {
   };
 
   // Client-Side Gemini Integration
-  const generateClientSideStory = async (keywordsList, apiKey, lang) => {
+  const generateClientSideStory = async (keywordsList, apiKey, lang, retryCount = 0) => {
     const isHindi = lang === 'hindi';
     const prompt = `Write a short, engaging story of approximately 500 words. 
     It must be highly readable, written in a warm and classic prose style (suitable for all ages), and teach a clear moral lesson.
@@ -154,8 +158,18 @@ export default function StoryCreator({ session, onStoryCreated, onCancel }) {
       })
     });
 
+    // Auto-retry once or twice on Google 503 (Temporarily Overloaded)
+    if (response.status === 503 && retryCount < 2) {
+      console.warn(`Gemini API busy (503). Retrying in 1.5 seconds... (Attempt ${retryCount + 1}/2)`);
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      return generateClientSideStory(keywordsList, apiKey, lang, retryCount + 1);
+    }
+
     if (!response.ok) {
-      throw new Error(`Gemini API responded with status ${response.status}`);
+      if (response.status === 503) {
+        throw new Error("Google's storytelling servers are temporarily busy (503). Please click 'Weave Story' to try again in a few seconds!");
+      }
+      throw new Error(`Gemini API responded with status ${response.status}. Please check your internet connection or click "Weave Story" again!`);
     }
 
     const result = await response.json();
@@ -164,7 +178,17 @@ export default function StoryCreator({ session, onStoryCreated, onCancel }) {
   };
 
   // High-Quality Whimsical Fallback Story
-  const generatePremiumMockStory = (k) => {
+  const generatePremiumMockStory = (k, lang) => {
+    const isHindi = lang === 'hindi';
+    
+    if (isHindi) {
+      return {
+        title: `रहस्यमयी ${k[0].charAt(0).toUpperCase() + k[0].slice(1)} की प्राचीन कहानी`,
+        story: `एक घने और प्राचीन जंगल के बीच, जहाँ पेड़ हवा में गुनगुनाते थे, एक छोटी सी कुटिया थी। वहाँ देव नाम का एक जिज्ञासु बालक रहता था। देव के पास एक बहुत ही सुंदर और जादुई ${k[0]} था, जो उसे उसके पूर्वजों से मिला था। जब भी हवा चलती, उस ${k[0]} से एक मधुर संगीत निकलता था जो सभी को शांति देता था।\n\nएक सुबह, एक नटखट ${k[1]} जंगल की झाड़ियों से बाहर आया। उसने खिड़की पर रखे चमकते हुए ${k[0]} को देखा और उसे चुराने की लालसा को रोक नहीं पाया। एक तेज छलांग के साथ, ${k[1]} ने उसे झपट लिया और ऊंचे पेड़ों की शाखाओं में गायब हो गया।\n\nदेव ने जब अपना खोया हुआ ${k[0]} देखा, तो वह दुखी हुआ, लेकिन क्रोधित होने के बजाय उसने अपनी जादुई ${k[2]} उठाई और खोज पर निकल पड़ा। रास्ते में एक विशाल और गर्जना करती हुई ${k[3]} बह रही थी। देव ने अपनी सूझबूझ से ${k[2]} को एक मजबूत डाल पर फंसाया और हवा में झूलते हुए नदी पार कर ली।\n\nनदी पार उसने अंततः ${k[1]} को एक पुराने बरगद के नीचे पाया। वह डरा हुआ था। देव ने अपनी जेब से एक सोने का ${k[4]} निकाला और उसे मित्रता स्वरूप भेंट किया। उपहार देख ${k[1]} की आँखों में चमक आ गई। उसने जादुई ${k[0]} देव को लौटा दिया और चमकता हुआ ${k[4]} अपने पास रख लिया।\n\nजंगल में मधुर संगीत फिर गूंज उठा, और देव और वह नटखट जीव हमेशा के लिए मित्र बन गए।`,
+        moral: `सच्ची सफलता क्रोध से नहीं, बल्कि सूझबूझ, धैर्य और मित्रता की भावना से प्राप्त होती है।`
+      };
+    }
+    
     return {
       title: `The Tale of the Whispering ${k[0].charAt(0).toUpperCase() + k[0].slice(1)}`,
       story: `Deep within the heart of an ancient forest, where the moss grew thick and the trees whispered secrets of old, stood a tiny cottage. In it lived a young seeker named Leo. Leo possessed a mysterious and beautiful ${k[0]}, which had been passed down through generations of his family. It was no ordinary object; whenever the wind blew, it produced a soft, chiming melody that brought peace to anyone who heard it.\n\nOne bright morning, a mischievous little ${k[1]} wandered out of the shadows. Seeing the glistening ${k[0]} resting on Leo's windowsill, the creature couldn't resist the urge to swipe it. With a quick leap, the ${k[1]} snatched the treasure and scurried up into the high branches of the canopy.\n\nWhen Leo discovered his loss, his heart sank. But instead of growing angry, he grabbed his trusted ${k[2]} and decided to embark on a quest. He knew that anger would solve nothing, but determination and cleverness would. Following a trail of glowing dust, he entered the deepest parts of the woods, where a roaring ${k[3]} blocked his path. The river was wild and impassable. Thinking quickly, Leo used his ${k[2]} to hook onto a sturdy vine above, swinging gracefully across the raging waters.\n\nOn the other side, he finally cornered the ${k[1]} under a massive, hollow oak. The creature looked frightened, clutching the stolen item close to its chest. Realizing the thief was lonely rather than malicious, Leo reached into his pocket and offered a golden ${k[4]} he had brought along. The creature's eyes lit up. It gently handed back the musical ${k[0]} in exchange for the warm, glowing ${k[4]}.\n\nAs the soft chimes echoed once more through the clearing, Leo and the creature shared a smile of understanding, bound by a new friendship. Leo returned home, his heart full and his spirit enriched by the magical journey.`,

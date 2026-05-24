@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, ZoomIn, ZoomOut, BookOpen, Quote, Trash2, Highlighter, RotateCcw } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
@@ -8,14 +8,22 @@ const READ_THEMES = {
   charcoal: { bg: '#2b2621', paper: '#36302a', ink: '#f3e8dc', label: 'Ink Dark' }
 };
 
+const HIGHLIGHT_COLORS = {
+  yellow: { class: 'color-yellow', hex: '#ffd54f', label: 'Yellow' },
+  green: { class: 'color-green', hex: '#4caf50', label: 'Green' },
+  blue: { class: 'color-blue', hex: '#03a9f4', label: 'Blue' },
+  orange: { class: 'color-orange', hex: '#ff5722', label: 'Orange' }
+};
+
 export default function StoryReader({ story, onBack, onDeleteSuccess }) {
   const [fontSize, setFontSize] = useState(1.05); // rem
   const [themeName, setThemeName] = useState('parchment');
   const [deleting, setDeleting] = useState(false);
 
   // Highlighter State
-  const [highlighterActive, setHighlighterActive] = useState(false);
   const [highlightKey, setHighlightKey] = useState(0); // Trigger re-render to clear manual DOM wraps
+  const [floatingMenu, setFloatingMenu] = useState(null); // { x, y, bottomY, isBelow }
+  const [editMenu, setEditMenu] = useState(null); // { node, x, y, bottomY, isBelow, currentColor }
 
   const currentTheme = READ_THEMES[themeName];
   const paragraphs = story.content.split('\n\n').filter(p => p.trim() !== '');
@@ -40,12 +48,8 @@ export default function StoryReader({ story, onBack, onDeleteSuccess }) {
     }
   };
 
-  // Selection Highlighter Logic
-  const handleMouseUp = () => {
-    if (!highlighterActive) return;
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) return;
-
+  // Core Highlight wrapping logic
+  const highlightRange = (selection, colorName) => {
     try {
       const range = selection.getRangeAt(0);
       const storyContainer = document.getElementById('story-content-container');
@@ -53,12 +57,12 @@ export default function StoryReader({ story, onBack, onDeleteSuccess }) {
       // Ensure the selection lies entirely inside the story content container
       if (storyContainer && storyContainer.contains(range.commonAncestorContainer)) {
         const mark = document.createElement('mark');
-        mark.className = 'marker-highlight';
+        mark.className = `marker-highlight color-${colorName}`;
         
         // Wrap the selected range in our highlighted marker element
         range.surroundContents(mark);
         
-        // Clear browser default highlight after selection
+        // Clear browser default highlight selection immediately (Kindle style)
         selection.removeAllRanges();
       }
     } catch (err) {
@@ -66,10 +70,113 @@ export default function StoryReader({ story, onBack, onDeleteSuccess }) {
     }
   };
 
+  const applyHighlight = (colorName) => {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) {
+      highlightRange(selection, colorName);
+    }
+    setFloatingMenu(null);
+  };
+
   // Clear all highlights by forcing a re-render and wiping inline DOM wraps
   const handleClearHighlights = () => {
     setHighlightKey(prev => prev + 1);
   };
+
+  const getHighlightColorFromNode = (node) => {
+    if (!node) return 'yellow';
+    if (node.classList.contains('color-yellow')) return 'yellow';
+    if (node.classList.contains('color-green')) return 'green';
+    if (node.classList.contains('color-blue')) return 'blue';
+    if (node.classList.contains('color-orange')) return 'orange';
+    return 'yellow';
+  };
+
+  const handleRemoveHighlight = (node) => {
+    if (!node) return;
+    node.replaceWith(...node.childNodes);
+    setEditMenu(null);
+  };
+
+  const handleChangeColor = (node, newColorName) => {
+    if (!node) return;
+    node.classList.remove('color-yellow', 'color-green', 'color-blue', 'color-orange');
+    node.classList.add(`color-${newColorName}`);
+    setEditMenu(null);
+  };
+
+  const handleStoryContainerClick = (e) => {
+    const highlightNode = e.target.closest('.marker-highlight');
+    if (highlightNode) {
+      // Clear selection so the browser native handles don't get in the way of editing!
+      window.getSelection()?.removeAllRanges();
+      
+      const rect = highlightNode.getBoundingClientRect();
+      setEditMenu({
+        node: highlightNode,
+        x: rect.left + rect.width / 2,
+        y: rect.top,
+        bottomY: rect.bottom,
+        isBelow: rect.top < 85,
+        currentColor: getHighlightColorFromNode(highlightNode)
+      });
+      setFloatingMenu(null); // Clear selection menu if active
+    }
+  };
+
+  // Handle click outside highlight edit menu to close it
+  useEffect(() => {
+    const handleDocumentClick = (e) => {
+      const popup = document.getElementById('highlight-edit-popup');
+      if (popup && !popup.contains(e.target) && !e.target.closest('.marker-highlight')) {
+        setEditMenu(null);
+      }
+    };
+
+    document.addEventListener('click', handleDocumentClick);
+    return () => {
+      document.removeEventListener('click', handleDocumentClick);
+    };
+  }, []);
+
+  // Kindle-Style Text Selection Listener for both Desktop and Mobile
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+        setFloatingMenu(null);
+        return;
+      }
+
+      const storyContainer = document.getElementById('story-content-container');
+      if (storyContainer) {
+        try {
+          const range = selection.getRangeAt(0);
+          if (storyContainer.contains(range.commonAncestorContainer)) {
+            const rect = range.getBoundingClientRect();
+            setFloatingMenu({
+              x: rect.left + rect.width / 2,
+              y: rect.top,
+              bottomY: rect.bottom,
+              isBelow: rect.top < 85
+            });
+            return;
+          }
+        } catch (e) {
+          // Ignore temporary range access during dragging
+        }
+      }
+      setFloatingMenu(null);
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    window.addEventListener('scroll', handleSelectionChange, { passive: true });
+    
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      window.removeEventListener('scroll', handleSelectionChange);
+    };
+  }, []);
 
   return (
     <div className="animate-fade-in" style={{ padding: '10px 0 40px' }}>
@@ -99,57 +206,9 @@ export default function StoryReader({ story, onBack, onDeleteSuccess }) {
           <span>Return to Library</span>
         </button>
 
-        {/* Text Scaling, Highlighter & Theme Selectors */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+        {/* Text Scaling, Multi-color Highlighter & Theme Selectors */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           
-          {/* Highlighter Pen Toggle */}
-          <button
-            onClick={() => setHighlighterActive(!highlighterActive)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 14px',
-              background: highlighterActive ? 'var(--gold-glow)' : 'transparent',
-              border: highlighterActive ? '1px solid var(--gold-dark)' : '1px solid var(--ink-muted)',
-              borderRadius: '3px',
-              cursor: 'pointer',
-              color: 'var(--ink-dark)',
-              fontFamily: 'Cinzel, serif',
-              fontSize: '0.75rem',
-              fontWeight: '700',
-              boxShadow: highlighterActive ? '0 0 8px rgba(189, 162, 126, 0.4)' : 'none',
-              transition: 'all 0.3s ease'
-            }}
-            title="Toggle Highlighter Pen (Drag select text to draw highlights!)"
-          >
-            <Highlighter size={16} style={{ color: highlighterActive ? '#b39262' : 'inherit' }} />
-            <span>{highlighterActive ? "Pen: Active" : "Highlighter"}</span>
-          </button>
-
-          {/* Reset highlights */}
-          {highlighterActive && (
-            <button
-              onClick={handleClearHighlights}
-              style={{
-                background: 'none',
-                border: '1px solid var(--ink-muted)',
-                borderRadius: '3px',
-                padding: '6px 10px',
-                cursor: 'pointer',
-                color: 'var(--ink-medium)',
-                fontSize: '0.75rem',
-                fontFamily: 'Cinzel, serif',
-                fontWeight: '700',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              <RotateCcw size={13} />
-              <span>Clear</span>
-            </button>
-          )}
 
           {/* Font Sizer */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -228,11 +287,10 @@ export default function StoryReader({ story, onBack, onDeleteSuccess }) {
           border: '1px solid rgba(78, 62, 46, 0.12)'
         }}
       >
-        {/* Book Container with 3D spine and custom highlighter cursor */}
+        {/* Book Container with custom text selection styling */}
         <div 
-          className="card-parchment" 
+          className="card-parchment highlighter-active" 
           key={highlightKey}
-          onMouseUp={handleMouseUp}
           style={{
             background: currentTheme.paper,
             color: currentTheme.ink,
@@ -242,7 +300,11 @@ export default function StoryReader({ story, onBack, onDeleteSuccess }) {
             position: 'relative',
             borderRadius: '6px',
             overflow: 'hidden',
-            cursor: highlighterActive ? 'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\' fill=\'%23FFE082\' stroke=\'%23B39262\' stroke-width=\'1.5\'><path d=\'M18.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z\'/></svg>") 2 18, text' : 'text'
+            cursor: 'text',
+            WebkitUserSelect: 'text',
+            userSelect: 'text',
+            touchAction: 'auto',
+            WebkitTouchCallout: 'default'
           }}
         >
           {/* Subtle paper grain texture */}
@@ -267,18 +329,20 @@ export default function StoryReader({ story, onBack, onDeleteSuccess }) {
             width: '2px',
             background: 'linear-gradient(90deg, rgba(0,0,0,0.15), rgba(255,255,255,0.05), rgba(0,0,0,0.15))',
             transform: 'translateX(-50%)',
-            pointerEvents: 'none',
-            display: 'block'
+            pointerEvents: 'none'
           }} />
 
           {/* Side-by-Side Double Page Layout */}
-          <div id="story-content-container" className="book-pages" style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
-            gap: '60px',
-            position: 'relative',
-            zIndex: 1
-          }}>
+          <div 
+            id="story-content-container" 
+            className="book-pages" 
+            onClick={handleStoryContainerClick}
+            style={{
+              display: 'grid',
+              position: 'relative',
+              zIndex: 1
+            }}
+          >
             
             {/* Page I: Cover hashtags, Title and First Half of Story */}
             <div style={{ paddingRight: '10px' }}>
@@ -466,36 +530,236 @@ export default function StoryReader({ story, onBack, onDeleteSuccess }) {
         </div>
       </div>
       
+      {/* Floating Menu Capsules (Kindle/Medium-Style Popup) */}
+      {floatingMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            left: `${floatingMenu.x}px`,
+            top: floatingMenu.isBelow ? `${floatingMenu.bottomY + 8}px` : `${floatingMenu.y - 8}px`,
+            transform: floatingMenu.isBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+            display: 'flex',
+            gap: '8px',
+            background: 'var(--bg-parchment-deep)',
+            padding: '6px 12px',
+            borderRadius: '20px',
+            boxShadow: '0 8px 24px rgba(42, 32, 21, 0.25)',
+            border: '1px solid var(--gold-dark)',
+            zIndex: 10000,
+            pointerEvents: 'auto',
+            animation: floatingMenu.isBelow ? 'scale-up-fade-below 0.15s ease-out' : 'scale-up-fade-above 0.15s ease-out'
+          }}
+        >
+          {Object.entries(HIGHLIGHT_COLORS).map(([name, config]) => (
+            <button
+              key={name}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                applyHighlight(name);
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                applyHighlight(name);
+              }}
+              style={{
+                width: '14px',
+                height: '22px',
+                borderRadius: '4px',
+                background: config.hex,
+                border: '1px solid rgba(0,0,0,0.15)',
+                cursor: 'pointer',
+                transition: 'transform 0.1s ease',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+              }}
+              className="hover-scale"
+              title={`Highlight active selection in ${config.label}`}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Floating Highlight Edit Menu (Click on existing Highlight Popup) */}
+      {editMenu && (
+        <div
+          id="highlight-edit-popup"
+          style={{
+            position: 'fixed',
+            left: `${editMenu.x}px`,
+            top: editMenu.isBelow ? `${editMenu.bottomY + 8}px` : `${editMenu.y - 8}px`,
+            transform: editMenu.isBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            background: 'var(--bg-parchment-deep)',
+            padding: '6px 14px',
+            borderRadius: '20px',
+            boxShadow: '0 8px 24px rgba(42, 32, 21, 0.25)',
+            border: '1px solid var(--gold-dark)',
+            zIndex: 10000,
+            pointerEvents: 'auto',
+            animation: editMenu.isBelow ? 'scale-up-fade-below 0.15s ease-out' : 'scale-up-fade-above 0.15s ease-out'
+          }}
+        >
+          {/* Delete Icon Button */}
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleRemoveHighlight(editMenu.node);
+            }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleRemoveHighlight(editMenu.node);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--accent-crimson)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '4px',
+              borderRadius: '50%',
+              transition: 'transform 0.15s ease',
+            }}
+            className="hover-scale"
+            title="Delete Highlight"
+          >
+            <Trash2 size={16} />
+          </button>
+
+          {/* Vertical Divider */}
+          <div style={{
+            width: '1px',
+            height: '16px',
+            background: 'rgba(78, 62, 46, 0.2)',
+            margin: '0 2px'
+          }} />
+
+          {/* Color Pills to change color */}
+          {Object.entries(HIGHLIGHT_COLORS).map(([name, config]) => (
+            <button
+              key={name}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleChangeColor(editMenu.node, name);
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleChangeColor(editMenu.node, name);
+              }}
+              style={{
+                width: '14px',
+                height: '22px',
+                borderRadius: '4px',
+                background: config.hex,
+                border: editMenu.currentColor === name ? '2px solid var(--ink-dark)' : '1px solid rgba(0,0,0,0.15)',
+                cursor: 'pointer',
+                transition: 'transform 0.1s ease',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                transform: editMenu.currentColor === name ? 'scale(1.1)' : 'scale(1)'
+              }}
+              className="hover-scale"
+              title={`Change color to ${config.label}`}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Styles for customizable selection and persistent highlights */}
       <style dangerouslySetInnerHTML={{__html: `
-        /* Custom highlight color when Pen Mode is ON */
+        /* Custom selection overlay in browser */
         .highlighter-active ::selection {
-          background: rgba(255, 235, 59, 0.6) !important;
+          background: rgba(189, 162, 126, 0.25) !important;
           color: inherit !important;
         }
-        
         .highlighter-active ::-moz-selection {
-          background: rgba(255, 235, 59, 0.6) !important;
+          background: rgba(189, 162, 126, 0.25) !important;
           color: inherit !important;
         }
 
-        /* Persistent highlight element */
+        /* Persistent Highlight classes */
         .marker-highlight {
-          background: linear-gradient(104deg, rgba(255, 235, 59, 0.45) 0%, rgba(255, 235, 59, 0.55) 100%) !important;
-          box-shadow: inset 0 -2px 0 rgba(255, 223, 0, 0.3);
           border-radius: 2px;
           padding: 0 2px;
           display: inline;
+          transition: background 0.3s ease;
         }
 
-        @media (max-width: 768px) {
+        .marker-highlight.color-yellow {
+          background: linear-gradient(104deg, rgba(255, 235, 59, 0.45) 0%, rgba(255, 235, 59, 0.6) 100%) !important;
+          box-shadow: inset 0 -2px 0 rgba(255, 223, 0, 0.3);
+        }
+        
+        .marker-highlight.color-green {
+          background: linear-gradient(104deg, rgba(76, 175, 80, 0.35) 0%, rgba(76, 175, 80, 0.5) 100%) !important;
+          box-shadow: inset 0 -2px 0 rgba(76, 175, 80, 0.25);
+        }
+
+        .marker-highlight.color-blue {
+          background: linear-gradient(104deg, rgba(3, 169, 244, 0.35) 0%, rgba(3, 169, 244, 0.5) 100%) !important;
+          box-shadow: inset 0 -2px 0 rgba(3, 169, 244, 0.25);
+        }
+
+        .marker-highlight.color-orange {
+          background: linear-gradient(104deg, rgba(255, 87, 34, 0.35) 0%, rgba(255, 87, 34, 0.5) 100%) !important;
+          box-shadow: inset 0 -2px 0 rgba(255, 87, 34, 0.25);
+        }
+
+        /* Default mobile/tablet view (single column) */
+        .book-pages {
+          grid-template-columns: 1fr !important;
+          gap: 30px !important;
+        }
+        .book-spine-divider {
+          display: none !important;
+        }
+
+        /* Large tablets & desktop (side-by-side double page layout) */
+        @media (min-width: 992px) {
           .book-pages {
-            grid-template-columns: 1fr !important;
-            gap: 30px !important;
+            grid-template-columns: 1fr 1fr !important;
+            gap: 60px !important;
           }
           .book-spine-divider {
-            display: none !important;
+            display: block !important;
           }
+        }
+
+        /* Floating Menu Animations and Hover Scale */
+        @keyframes scale-up-fade-above {
+          from {
+            opacity: 0;
+            transform: translate(-50%, -90%) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translate(-50%, -100%) scale(1);
+          }
+        }
+        
+        @keyframes scale-up-fade-below {
+          from {
+            opacity: 0;
+            transform: translate(-50%, -10px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translate(-50%, 0) scale(1);
+          }
+        }
+        
+        .hover-scale {
+          transition: transform 0.15s ease !important;
+        }
+        .hover-scale:hover {
+          transform: scale(1.22) !important;
         }
       `}} />
 
