@@ -12,6 +12,34 @@ export default function App() {
   const [currentView, setCurrentView] = useState('shelf'); // 'shelf', 'create', 'reader'
   const [selectedStory, setSelectedStory] = useState(null);
 
+  if (!supabase) {
+    return (
+      <div className="flex-center animate-fade-in" style={{ minHeight: '100vh', padding: '20px' }}>
+        <div className="card-parchment card-embossed" style={{ maxWidth: '600px', width: '100%', padding: '40px', textAlign: 'center', border: '1px solid rgba(140, 115, 82, 0.35)' }}>
+          <h2 style={{ fontSize: '1.8rem', color: 'var(--accent-crimson)', marginBottom: '15px' }}>Missing Library Credentials</h2>
+          <p className="font-story-vintage" style={{ marginBottom: '20px', fontSize: '0.95rem', lineHeight: '1.6', color: 'var(--ink-medium)' }}>
+            The scribal scrolls are currently sealed. The application could not detect your Supabase connection keys in the production environment.
+          </p>
+          <div style={{ background: 'var(--bg-parchment-dark)', border: '1px dashed rgba(78, 62, 46, 0.25)', padding: '16px 20px', borderRadius: '4px', textAlign: 'left', fontSize: '0.85rem', lineHeight: '1.5', color: 'var(--ink-dark)' }}>
+            <strong>How to resolve this in Vercel:</strong>
+            <ol style={{ marginLeft: '20px', marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <li>Go to your <strong>Vercel Dashboard</strong> and open your project.</li>
+              <li>Navigate to <strong>Settings</strong> &gt; <strong>Environment Variables</strong>.</li>
+              <li>Add the following keys exactly as written (make sure they start with <strong><code>VITE_</code></strong>):
+                <ul style={{ marginLeft: '20px', marginTop: '5px', listStyleType: 'disc' }}>
+                  <li><code>VITE_SUPABASE_URL</code></li>
+                  <li><code>VITE_SUPABASE_ANON_KEY</code></li>
+                </ul>
+              </li>
+              <li>Click <strong>Save</strong>.</li>
+              <li>Go to <strong>Deployments</strong>, click the three dots on your latest deployment, and select <strong>Redeploy</strong> (or push a new commit) to apply the variables!</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   useEffect(() => {
     // 1. Check current session
     supabase.auth.getSession().then(({ data: { session } }) => {
