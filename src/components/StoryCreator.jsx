@@ -24,6 +24,7 @@ export default function StoryCreator({ session, onStoryCreated, onCancel }) {
   const [loading, setLoading] = useState(false);
   const [writingPhraseIndex, setWritingPhraseIndex] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+  const [language, setLanguage] = useState('english'); // 'english' or 'hindi'
 
   const handleKeywordChange = (index, value) => {
     // Only allow single words without spaces
@@ -69,7 +70,7 @@ export default function StoryCreator({ session, onStoryCreated, onCancel }) {
         const response = await fetch('/api/generate-story', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ keywords: filteredKeywords }),
+          body: JSON.stringify({ keywords: filteredKeywords, language }),
         });
 
         if (response.ok) {
@@ -83,7 +84,7 @@ export default function StoryCreator({ session, onStoryCreated, onCancel }) {
       if (!storyData) {
         const localGeminiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (localGeminiKey) {
-          storyData = await generateClientSideStory(filteredKeywords, localGeminiKey);
+          storyData = await generateClientSideStory(filteredKeywords, localGeminiKey, language);
         }
       }
 
@@ -126,17 +127,25 @@ export default function StoryCreator({ session, onStoryCreated, onCancel }) {
   };
 
   // Client-Side Gemini Integration
-  const generateClientSideStory = async (keywordsList, apiKey) => {
-    const prompt = `Write a short, engaging story of exactly 500 words. It must be highly readable, suitable for all ages, and teach a clear moral lesson. The story MUST revolve around these 5 keywords: ${keywordsList.join(', ')}. 
+  const generateClientSideStory = async (keywordsList, apiKey, lang) => {
+    const isHindi = lang === 'hindi';
+    const prompt = `Write a short, engaging story of approximately 500 words. 
+    It must be highly readable, written in a warm and classic prose style (suitable for all ages), and teach a clear moral lesson.
     
-    Format your output strictly as a JSON object with exactly these three keys:
-    {
-      "title": "Title of the Story",
-      "story": "The full story text structured with multiple paragraphs...",
-      "moral": "The moral lesson in one concise sentence."
-    }`;
+    The story MUST prominently feature and revolve around these five keywords: ${keywordsList.join(', ')}.
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+    The story and the moral MUST be written in ${isHindi ? 'Hindi (in standard Devanagari script - हिंदी)' : 'English'}.
+
+    Format your output strictly as a JSON object with exactly these three keys in English:
+    {
+      "title": "Title of the Story (written in ${isHindi ? 'Hindi Devanagari' : 'English'})",
+      "story": "The complete short story content structured with multiple paragraphs (written in ${isHindi ? 'Hindi Devanagari' : 'English'} using \\n\\n for paragraph breaks).",
+      "moral": "The moral lesson of the story stated in one concise, elegant sentence (written in ${isHindi ? 'Hindi Devanagari' : 'English'})."
+    }
+    
+    Ensure there is no surrounding markdown, no backticks, and no extra text outside the JSON object.`;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -251,6 +260,58 @@ export default function StoryCreator({ session, onStoryCreated, onCancel }) {
                 }}
               >
                 <strong>Rules of Scribing:</strong> Enter one distinct word in each of the scroll containers below. The AI will weave a unique 500-word fable complete with a rich moral lesson. Avoid phrases or spaces.
+              </div>
+
+              {/* Language Selector Toggle */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '5px 0 10px' }}>
+                <label 
+                  style={{ 
+                    fontFamily: 'Cinzel, serif', 
+                    fontSize: '0.75rem', 
+                    fontWeight: '700', 
+                    letterSpacing: '0.08em', 
+                    color: 'var(--ink-light)', 
+                    marginBottom: '8px' 
+                  }}
+                >
+                  Story Language / भाषा का चयन
+                </label>
+                <div style={{ display: 'flex', border: '1px solid var(--ink-muted)', borderRadius: '4px', overflow: 'hidden', background: 'rgba(0,0,0,0.03)' }}>
+                  <button
+                    type="button"
+                    onClick={() => setLanguage('english')}
+                    style={{
+                      background: language === 'english' ? 'var(--ink-dark)' : 'transparent',
+                      color: language === 'english' ? 'var(--bg-parchment-light)' : 'var(--ink-medium)',
+                      border: 'none',
+                      padding: '8px 24px',
+                      fontFamily: 'Cinzel, serif',
+                      fontWeight: '700',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    English
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLanguage('hindi')}
+                    style={{
+                      background: language === 'hindi' ? 'var(--ink-dark)' : 'transparent',
+                      color: language === 'hindi' ? 'var(--bg-parchment-light)' : 'var(--ink-medium)',
+                      border: 'none',
+                      padding: '8px 24px',
+                      fontFamily: 'Cinzel, serif',
+                      fontWeight: '700',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    हिंदी (Hindi)
+                  </button>
+                </div>
               </div>
 
               {/* Keyword Fields Layout */}

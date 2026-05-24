@@ -27,7 +27,7 @@ export default function Auth({ onAuthSuccess }) {
     setSuccessMsg('');
 
     // Map username to a safe, valid email behind the scenes
-    const email = `${username.trim().toLowerCase()}@storyapp.local`;
+    const email = `${username.trim().toLowerCase()}@storyapp.com`;
 
     try {
       if (isSignUp) {

@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
 
-  const { keywords } = req.body;
+  const { keywords, language } = req.body;
 
   if (!keywords || !Array.isArray(keywords) || keywords.length !== 5) {
     return res.status(400).json({ error: 'Please provide an array of exactly 5 keywords.' });
@@ -36,22 +36,25 @@ export default async function handler(req, res) {
     });
   }
 
+  const isHindi = language === 'hindi';
   const prompt = `Write a beautiful, engaging short story of approximately 500 words. 
   It must be highly readable, written in a warm and classic prose style (suitable for all ages), and teach a clear moral lesson.
   
   The story MUST prominently feature and revolve around these five keywords: ${keywords.join(', ')}.
 
-  Format your response STRICTLY as a JSON object with exactly these three keys:
+  The story and the moral MUST be written in ${isHindi ? 'Hindi (in Devanagari script - हिंदी)' : 'English'}.
+
+  Format your response STRICTLY as a JSON object with exactly these three keys in English:
   {
-    "title": "Title of the Story",
-    "story": "The complete short story content, structured with multiple paragraphs (using \\n\\n for paragraph breaks).",
-    "moral": "The moral lesson of the story stated in one concise, elegant sentence."
+    "title": "Title of the Story (written in ${isHindi ? 'Hindi Devanagari' : 'English'})",
+    "story": "The complete short story content structured with multiple paragraphs (written in ${isHindi ? 'Hindi Devanagari' : 'English'} using \\n\\n for paragraph breaks).",
+    "moral": "The moral lesson of the story stated in one concise, elegant sentence (written in ${isHindi ? 'Hindi Devanagari' : 'English'})."
   }
   
   Ensure there is no surrounding markdown, no backticks, and no extra text outside the JSON object.`;
 
   try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
     const response = await fetch(geminiUrl, {
       method: 'POST',
